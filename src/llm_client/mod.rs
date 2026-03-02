@@ -12,6 +12,7 @@
 pub mod anthropic;
 pub mod claude;
 pub mod openai;
+pub mod task_queue;
 pub mod token_tracker;
 
 pub use token_tracker::TokenUsage;
