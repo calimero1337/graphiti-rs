@@ -47,6 +47,8 @@ pub struct Graphiti {
     pub embedder: Arc<dyn EmbedderClient>,
     /// Configuration snapshot retained for informational access.
     pub config: GraphitiConfig,
+    /// Task queue for delegated LLM backend (None for direct backends).
+    pub task_queue: Option<Arc<crate::llm_client::task_queue::LlmTaskQueue>>,
     /// Ingestion pipeline (wraps driver + llm + embedder).
     pipeline: Pipeline,
     /// Hybrid search engine (wraps driver + embedder).
@@ -83,6 +85,7 @@ impl Graphiti {
             llm_client: llm,
             embedder,
             config,
+            task_queue: None,
             pipeline,
             search_engine,
             community_builder,
@@ -106,6 +109,8 @@ impl Graphiti {
             config.embedding_dim,
         )?);
 
+        let mut task_queue: Option<Arc<crate::llm_client::task_queue::LlmTaskQueue>> = None;
+
         let llm: Arc<dyn LlmClient> = match config.llm_backend {
             LlmBackend::Anthropic => Arc::new(AnthropicClient::new(
                 &config.anthropic_api_key,
@@ -118,9 +123,20 @@ impl Graphiti {
                 &config.model_name,
                 CacheConfig::default(),
             )),
+            LlmBackend::Delegated => {
+                let queue = Arc::new(crate::llm_client::task_queue::LlmTaskQueue::new());
+                task_queue = Some(Arc::clone(&queue));
+                Arc::new(crate::llm_client::delegated::DelegatedLlmClient::new(
+                    queue,
+                    config.group_id.clone().unwrap_or_default(),
+                    std::time::Duration::from_secs(120),
+                ))
+            }
         };
 
-        Ok(Self::from_clients(driver, embedder, llm, config))
+        let mut graphiti = Self::from_clients(driver, embedder, llm, config);
+        graphiti.task_queue = task_queue;
+        Ok(graphiti)
     }
 
     /// Create graph indexes and constraints.
