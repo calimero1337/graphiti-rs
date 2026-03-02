@@ -118,11 +118,6 @@ spec:
                 secretKeyRef:
                   name: graphiti-secrets
                   key: NEO4J_PASSWORD
-            - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: graphiti-secrets
-                  key: ANTHROPIC_API_KEY
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:

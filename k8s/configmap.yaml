@@ -18,8 +18,8 @@ data:
   EMBEDDING_BASE_URL: "http://embedding-server.claude.svc.cluster.local:8080/v1"
   EMBEDDING_MODEL: "bge-base-en-v1.5"
 
-  # LLM backend: "claude" (uses claude CLI via agent SDK)
-  LLM_BACKEND: "claude"
+  # LLM backend: "delegated" (tasks queued for external workers via MCP)
+  LLM_BACKEND: "delegated"
 
   # LLM model names (used by both backends)
   MODEL_NAME: "claude-sonnet-4-6"
