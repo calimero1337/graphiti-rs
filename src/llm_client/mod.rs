@@ -10,7 +10,6 @@
 //! Phase 2: Anthropic Claude, Google Gemini, Groq, Azure OpenAI.
 
 pub mod anthropic;
-pub mod claude;
 pub mod delegated;
 pub mod openai;
 pub mod task_queue;

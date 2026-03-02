@@ -19,7 +19,6 @@ use crate::embedder::http::HttpEmbedder;
 use crate::embedder::EmbedderClient;
 use crate::errors::Result;
 use crate::llm_client::anthropic::AnthropicClient;
-use crate::llm_client::claude::ClaudeLlmClient;
 use crate::llm_client::openai::{CacheConfig, OpenAiClient};
 use crate::llm_client::{LlmClient, TokenUsage};
 use crate::types::LlmBackend;
@@ -117,7 +116,6 @@ impl Graphiti {
                 &config.model_name,
                 CacheConfig::default(),
             )),
-            LlmBackend::Claude => Arc::new(ClaudeLlmClient::new(&config.model_name)),
             LlmBackend::OpenAI => Arc::new(OpenAiClient::new(
                 &config.openai_api_key,
                 &config.model_name,

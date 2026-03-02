@@ -13,8 +13,6 @@ pub enum LlmBackend {
     OpenAI,
     /// Anthropic Messages API directly (requires `anthropic_api_key`).
     Anthropic,
-    /// Claude CLI via Agent SDK (requires `claude` in PATH, local dev only).
-    Claude,
     /// Delegated to external worker via task queue (zero LLM dependencies).
     Delegated,
 }
@@ -112,7 +110,6 @@ impl GraphitiConfig {
 
         let llm_backend = match std::env::var("LLM_BACKEND") {
             Ok(val) if val.eq_ignore_ascii_case("anthropic") => LlmBackend::Anthropic,
-            Ok(val) if val.eq_ignore_ascii_case("claude") => LlmBackend::Claude,
             Ok(val) if val.eq_ignore_ascii_case("delegated") => LlmBackend::Delegated,
             _ => LlmBackend::OpenAI,
         };
@@ -121,7 +118,7 @@ impl GraphitiConfig {
             LlmBackend::OpenAI => std::env::var("OPENAI_API_KEY").map_err(|_| {
                 crate::GraphitiError::Validation("OPENAI_API_KEY is required when LLM_BACKEND=openai".to_string())
             })?,
-            LlmBackend::Anthropic | LlmBackend::Claude | LlmBackend::Delegated => std::env::var("OPENAI_API_KEY").unwrap_or_default(),
+            LlmBackend::Anthropic | LlmBackend::Delegated => std::env::var("OPENAI_API_KEY").unwrap_or_default(),
         };
 
         let anthropic_api_key = match llm_backend {

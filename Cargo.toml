@@ -82,8 +82,6 @@ tower = { version = "0.5", features = ["util"] }
 # MCP server
 rmcp = { version = "0.17", features = ["server", "macros", "transport-streamable-http-server"] }
 
-# Claude Agent SDK (subprocess wrapper around claude CLI)
-claude-agent-sdk = { git = "https://github.com/calimero1337/claude-agent-sdk-rs.git", branch = "main" }
 
 [dev-dependencies]
 tokio-test = "0.4"
