@@ -138,6 +138,28 @@ struct RememberParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 struct GetTokenUsageParams {}
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct PollLlmTasksParams {
+    /// Group ID to filter tasks (optional — returns all groups if absent).
+    group_id: Option<String>,
+    /// Maximum number of tasks to return (default: 10, max: 50).
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ClaimLlmTaskParams {
+    /// UUID of the task to claim.
+    task_id: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SubmitLlmResultParams {
+    /// UUID of the task to submit results for.
+    task_id: String,
+    /// JSON string containing the LLM result. Must be valid JSON matching the task's response_schema.
+    result_json: String,
+}
+
 // ── Server struct ─────────────────────────────────────────────────────────────
 
 /// MCP server that exposes Graphiti knowledge-graph operations as tools.
@@ -537,6 +559,70 @@ impl GraphitiMcpServer {
             usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
         ))
     }
+
+    #[tool(
+        name = "poll_llm_tasks",
+        description = "Poll for pending LLM tasks that need processing. Returns tasks with system_prompt, user_prompt, and response_schema. Lower Decks should call this periodically to pick up work."
+    )]
+    async fn poll_llm_tasks(
+        &self,
+        params: Parameters<PollLlmTasksParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let p = params.0;
+        let queue = match &self.graphiti.task_queue {
+            Some(q) => q,
+            None => return ok("[]"),
+        };
+        let tasks = queue.poll_pending(p.group_id.as_deref(), p.limit.unwrap_or(10).min(50));
+        let json = serde_json::to_string_pretty(&tasks)
+            .map_err(|e| McpError::internal_error(format!("serialize error: {e}"), None))?;
+        ok(json)
+    }
+
+    #[tool(
+        name = "claim_llm_task",
+        description = "Claim a pending LLM task for processing. Returns true if successfully claimed, false if already taken or not found. Must be called before submit_llm_result."
+    )]
+    async fn claim_llm_task(
+        &self,
+        params: Parameters<ClaimLlmTaskParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let p = params.0;
+        let queue = match &self.graphiti.task_queue {
+            Some(q) => q,
+            None => return ok("false"),
+        };
+        let id: Uuid = p
+            .task_id
+            .parse()
+            .map_err(|_| McpError::internal_error("invalid task_id UUID", None))?;
+        let claimed = queue.claim(&id);
+        ok(claimed.to_string())
+    }
+
+    #[tool(
+        name = "submit_llm_result",
+        description = "Submit the result for a previously claimed LLM task. The result_json must be valid JSON matching the task's response_schema. This wakes up the waiting pipeline."
+    )]
+    async fn submit_llm_result(
+        &self,
+        params: Parameters<SubmitLlmResultParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let p = params.0;
+        let queue = match &self.graphiti.task_queue {
+            Some(q) => q,
+            None => return tool_err("task queue not enabled"),
+        };
+        let id: Uuid = p
+            .task_id
+            .parse()
+            .map_err(|_| McpError::internal_error("invalid task_id UUID", None))?;
+        // Validate JSON
+        serde_json::from_str::<serde_json::Value>(&p.result_json)
+            .map_err(|e| McpError::internal_error(format!("invalid JSON: {e}"), None))?;
+        queue.complete(&id, p.result_json);
+        ok("true")
+    }
 }
 
 // ── ServerHandler ─────────────────────────────────────────────────────────────
@@ -568,7 +654,10 @@ impl ServerHandler for GraphitiMcpServer {
                 Use 'add_episode' for structured content ingestion. \
                 Use 'list_episodes' to see recent ingestion history. \
                 Use 'build_communities' to cluster related entities. \
-                Use 'get_token_usage' to monitor LLM token consumption."
+                Use 'get_token_usage' to monitor LLM token consumption. \
+                Use 'poll_llm_tasks' to poll for pending LLM tasks that need processing. \
+                Use 'claim_llm_task' to claim a task before processing it. \
+                Use 'submit_llm_result' to submit the LLM result for a claimed task."
                     .into(),
             ),
         }
@@ -580,9 +669,10 @@ impl ServerHandler for GraphitiMcpServer {
 #[cfg(test)]
 mod tests {
     use super::{
-        AddEpisodeParams, BuildCommunitiesParams, ContextualizeParams, GetEntityParams,
-        GetTimelineParams, GetTokenUsageParams, GraphitiMcpServer, ListEpisodesParams,
-        RecordOutcomeParams, RememberParams, SearchParams,
+        AddEpisodeParams, BuildCommunitiesParams, ClaimLlmTaskParams, ContextualizeParams,
+        GetEntityParams, GetTimelineParams, GetTokenUsageParams, GraphitiMcpServer,
+        ListEpisodesParams, PollLlmTasksParams, RecordOutcomeParams, RememberParams, SearchParams,
+        SubmitLlmResultParams,
     };
     use crate::graphiti::Graphiti;
     use crate::testutils::{MockDriver, MockEmbedder, MockLlmClient};
@@ -612,6 +702,19 @@ mod tests {
 
     fn make_server() -> GraphitiMcpServer {
         GraphitiMcpServer::new(make_graphiti())
+    }
+
+    fn make_server_with_queue() -> (GraphitiMcpServer, Arc<crate::llm_client::task_queue::LlmTaskQueue>) {
+        let queue = Arc::new(crate::llm_client::task_queue::LlmTaskQueue::new());
+        let mut graphiti = Graphiti::from_clients(
+            Arc::new(MockDriver),
+            Arc::new(MockEmbedder::new()),
+            Arc::new(MockLlmClient),
+            GraphitiConfig::default(),
+        );
+        graphiti.task_queue = Some(Arc::clone(&queue));
+        let server = GraphitiMcpServer::new(Arc::new(graphiti));
+        (server, queue)
     }
 
     // ── Sync construction tests ────────────────────────────────────────────────
@@ -1304,5 +1407,220 @@ mod tests {
             .expect("remember handler must not return McpError");
 
         assert_eq!(result.is_error, Some(false));
+    }
+
+    // ── Async handler tests: poll_llm_tasks ─────────────────────────────────
+
+    #[tokio::test]
+    async fn poll_llm_tasks_no_queue_returns_empty_array() {
+        let server = make_server();
+        let result = server
+            .poll_llm_tasks(Parameters(PollLlmTasksParams {
+                group_id: None,
+                limit: None,
+            }))
+            .await
+            .expect("poll_llm_tasks handler must not return McpError");
+
+        assert_eq!(result.is_error, Some(false));
+        let text = result
+            .content
+            .first()
+            .and_then(|c| c.as_text())
+            .expect("result must contain text");
+        assert_eq!(text.text, "[]");
+    }
+
+    #[tokio::test]
+    async fn poll_llm_tasks_with_queue_returns_pending_tasks() {
+        use crate::llm_client::task_queue::LlmTaskType;
+
+        let (server, queue) = make_server_with_queue();
+        queue.submit(
+            LlmTaskType::ExtractEntities,
+            "system".into(),
+            "user".into(),
+            serde_json::json!({}),
+            "grp".into(),
+        );
+        let result = server
+            .poll_llm_tasks(Parameters(PollLlmTasksParams {
+                group_id: None,
+                limit: None,
+            }))
+            .await
+            .expect("poll_llm_tasks handler must not return McpError");
+
+        assert_eq!(result.is_error, Some(false));
+        let text = result
+            .content
+            .first()
+            .and_then(|c| c.as_text())
+            .expect("result must contain text");
+        let tasks: Vec<serde_json::Value> =
+            serde_json::from_str(&text.text).expect("result must be valid JSON array");
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0]["task_type"], "extract_entities");
+    }
+
+    // ── Async handler tests: claim_llm_task ─────────────────────────────────
+
+    #[tokio::test]
+    async fn claim_llm_task_no_queue_returns_false() {
+        let server = make_server();
+        let result = server
+            .claim_llm_task(Parameters(ClaimLlmTaskParams {
+                task_id: "00000000-0000-0000-0000-000000000000".to_string(),
+            }))
+            .await
+            .expect("claim_llm_task handler must not return McpError");
+
+        assert_eq!(result.is_error, Some(false));
+        let text = result
+            .content
+            .first()
+            .and_then(|c| c.as_text())
+            .expect("result must contain text");
+        assert_eq!(text.text, "false");
+    }
+
+    #[tokio::test]
+    async fn claim_llm_task_invalid_uuid_returns_error() {
+        let (server, _queue) = make_server_with_queue();
+        let result = server
+            .claim_llm_task(Parameters(ClaimLlmTaskParams {
+                task_id: "not-a-uuid".to_string(),
+            }))
+            .await;
+
+        assert!(result.is_err(), "invalid UUID must return McpError");
+    }
+
+    // ── Async handler tests: submit_llm_result ──────────────────────────────
+
+    #[tokio::test]
+    async fn submit_llm_result_no_queue_returns_tool_error() {
+        let server = make_server();
+        let result = server
+            .submit_llm_result(Parameters(SubmitLlmResultParams {
+                task_id: "00000000-0000-0000-0000-000000000000".to_string(),
+                result_json: "{}".to_string(),
+            }))
+            .await
+            .expect("submit_llm_result handler must not return McpError");
+
+        assert_eq!(
+            result.is_error,
+            Some(true),
+            "submit without queue must be tool error"
+        );
+        let text = result
+            .content
+            .first()
+            .and_then(|c| c.as_text())
+            .expect("result must contain text");
+        assert!(
+            text.text.contains("task queue not enabled"),
+            "error message must mention queue; got: {text:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn submit_llm_result_invalid_json_returns_error() {
+        use crate::llm_client::task_queue::LlmTaskType;
+
+        let (server, queue) = make_server_with_queue();
+        let id = queue.submit(
+            LlmTaskType::ExtractEntities,
+            "system".into(),
+            "user".into(),
+            serde_json::json!({}),
+            "grp".into(),
+        );
+        queue.claim(&id);
+        let result = server
+            .submit_llm_result(Parameters(SubmitLlmResultParams {
+                task_id: id.to_string(),
+                result_json: "not valid json{{{".to_string(),
+            }))
+            .await;
+
+        assert!(result.is_err(), "invalid JSON must return McpError");
+    }
+
+    #[tokio::test]
+    async fn poll_claim_submit_round_trip() {
+        use crate::llm_client::task_queue::LlmTaskType;
+
+        let (server, queue) = make_server_with_queue();
+        let id = queue.submit(
+            LlmTaskType::Summarize,
+            "You are a summarizer.".into(),
+            "Summarize this.".into(),
+            serde_json::json!({"type": "object"}),
+            "test-group".into(),
+        );
+
+        // 1. Poll — should see 1 task
+        let poll = server
+            .poll_llm_tasks(Parameters(PollLlmTasksParams {
+                group_id: Some("test-group".to_string()),
+                limit: None,
+            }))
+            .await
+            .expect("poll must succeed");
+        let text = poll
+            .content
+            .first()
+            .and_then(|c| c.as_text())
+            .expect("poll result text");
+        let tasks: Vec<serde_json::Value> = serde_json::from_str(&text.text).expect("valid JSON");
+        assert_eq!(tasks.len(), 1);
+
+        // 2. Claim
+        let claim = server
+            .claim_llm_task(Parameters(ClaimLlmTaskParams {
+                task_id: id.to_string(),
+            }))
+            .await
+            .expect("claim must succeed");
+        let claim_text = claim
+            .content
+            .first()
+            .and_then(|c| c.as_text())
+            .expect("claim result text");
+        assert_eq!(claim_text.text, "true");
+
+        // 3. Poll again — should be empty (claimed tasks are InProgress)
+        let poll2 = server
+            .poll_llm_tasks(Parameters(PollLlmTasksParams {
+                group_id: Some("test-group".to_string()),
+                limit: None,
+            }))
+            .await
+            .expect("poll2 must succeed");
+        let text2 = poll2
+            .content
+            .first()
+            .and_then(|c| c.as_text())
+            .expect("poll2 result text");
+        let tasks2: Vec<serde_json::Value> =
+            serde_json::from_str(&text2.text).expect("valid JSON");
+        assert_eq!(tasks2.len(), 0);
+
+        // 4. Submit result
+        let submit = server
+            .submit_llm_result(Parameters(SubmitLlmResultParams {
+                task_id: id.to_string(),
+                result_json: r#"{"summary": "done"}"#.to_string(),
+            }))
+            .await
+            .expect("submit must succeed");
+        let submit_text = submit
+            .content
+            .first()
+            .and_then(|c| c.as_text())
+            .expect("submit result text");
+        assert_eq!(submit_text.text, "true");
     }
 }
