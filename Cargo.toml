@@ -1,0 +1,106 @@
+[package]
+name = "graphiti-rs"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Rust port of Graphiti — a framework for temporally-aware knowledge graphs for AI agents"
+license = "Apache-2.0"
+repository = "https://github.com/your-org/graphiti-rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+
+# Validation
+validator = { version = "0.20", features = ["derive"] }
+
+# HTTP
+reqwest = { version = "0.13", features = ["json"] }
+
+# Neo4j
+neo4rs = "0.8"
+
+# OpenAI
+async-openai = { version = "0.33", features = ["chat-completion", "embedding", "byot"] }
+
+# Numeric / Vector
+ndarray = "0.17"
+
+# BM25
+bm25 = "2.3"
+
+# UUID
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+
+# DateTime
+chrono = { version = "0.4", features = ["serde"] }
+
+# Graph algorithms
+petgraph = { version = "0.8", features = ["serde-1"] }
+
+# MinHash
+probminhash = "0.1"
+
+# Concurrent data structures
+dashmap = "6"
+moka = { version = "0.12", features = ["future"] }
+
+# Async trait (dyn-compatible async methods)
+async-trait = "0.1"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Retry
+backoff = { version = "0.4", features = ["tokio"] }
+
+# Hashing (cache keys)
+md-5 = "0.10"
+
+# Regex
+regex = "1"
+
+# Environment
+dotenvy = "0.15"
+
+# Tracing / Telemetry
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# REST API
+axum = { version = "0.8", features = ["http1", "http2", "json", "tokio", "tower-log"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "request-id", "timeout"] }
+tower = { version = "0.5", features = ["util"] }
+
+# MCP server
+rmcp = { version = "0.17", features = ["server", "macros", "transport-streamable-http-server"] }
+
+# Claude Agent SDK (subprocess wrapper around claude CLI)
+claude-agent-sdk = { git = "https://github.com/calimero1337/claude-agent-sdk-rs.git", branch = "main" }
+
+[dev-dependencies]
+tokio-test = "0.4"
+wiremock = "0.6"
+insta = { version = "1", features = ["json"] }
+proptest = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
+serial_test = "3"
+
+[[bin]]
+name = "graphiti-server"
+path = "src/bin/server.rs"
+
+[[bench]]
+name = "search"
+harness = false
+
+[[bench]]
+name = "similarity"
+harness = false

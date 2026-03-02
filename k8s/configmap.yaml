@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: graphiti-config
+  namespace: claude
+  labels:
+    app: graphiti-server
+    app.kubernetes.io/name: graphiti-server
+    app.kubernetes.io/component: api-server
+    app.kubernetes.io/part-of: graphiti-rs
+data:
+  # Neo4j connection (non-sensitive)
+  NEO4J_URI: "bolt://neo4j-ce.claude.svc.cluster.local:7687"
+  NEO4J_USER: "neo4j"
+
+  # Embedding model
+  EMBEDDING_DIM: "768"
+  EMBEDDING_BASE_URL: "http://embedding-server.claude.svc.cluster.local:8080/v1"
+  EMBEDDING_MODEL: "bge-base-en-v1.5"
+
+  # LLM backend: "claude" (uses claude CLI via agent SDK)
+  LLM_BACKEND: "claude"
+
+  # LLM model names (used by both backends)
+  MODEL_NAME: "claude-sonnet-4-6"
+  SMALL_MODEL_NAME: "claude-haiku-4-5"
+
+  # Ingestion pipeline tuning
+  MAX_CONCURRENT_LLM_CALLS: "5"
+  ENTITY_SEARCH_LIMIT: "10"
+  EDGE_SEARCH_LIMIT: "10"
+
+  # Server listen address (host:port)
+  LISTEN_ADDR: "0.0.0.0:8080"
+
+  # Logging (env-filter syntax: info,graphiti_rs=debug)
+  RUST_LOG: "info"

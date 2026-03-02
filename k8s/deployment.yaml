@@ -1,0 +1,164 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graphiti-server
+  namespace: claude
+  labels:
+    app: graphiti-server
+    app.kubernetes.io/name: graphiti-server
+    app.kubernetes.io/component: api-server
+    app.kubernetes.io/part-of: graphiti-rs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: graphiti-server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: graphiti-server
+        app.kubernetes.io/name: graphiti-server
+        app.kubernetes.io/component: api-server
+        app.kubernetes.io/part-of: graphiti-rs
+      annotations:
+        # Trigger rollout when the ConfigMap changes (managed by Kustomize hash suffix).
+        checksum/configmap: "placeholder-replaced-by-kustomize"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: graphiti-server
+          image: graphiti-rs:latest
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            # Non-sensitive configuration from ConfigMap
+            - name: LLM_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: graphiti-config
+                  key: LLM_BACKEND
+            - name: NEO4J_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: graphiti-config
+                  key: NEO4J_URI
+            - name: NEO4J_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: graphiti-config
+                  key: NEO4J_USER
+            - name: EMBEDDING_DIM
+              valueFrom:
+                configMapKeyRef:
+                  name: graphiti-config
+                  key: EMBEDDING_DIM
+            - name: MODEL_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: graphiti-config
+                  key: MODEL_NAME
+            - name: SMALL_MODEL_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: graphiti-config
+                  key: SMALL_MODEL_NAME
+            - name: MAX_CONCURRENT_LLM_CALLS
+              valueFrom:
+                configMapKeyRef:
+                  name: graphiti-config
+                  key: MAX_CONCURRENT_LLM_CALLS
+            - name: ENTITY_SEARCH_LIMIT
+              valueFrom:
+                configMapKeyRef:
+                  name: graphiti-config
+                  key: ENTITY_SEARCH_LIMIT
+            - name: EDGE_SEARCH_LIMIT
+              valueFrom:
+                configMapKeyRef:
+                  name: graphiti-config
+                  key: EDGE_SEARCH_LIMIT
+            - name: LISTEN_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: graphiti-config
+                  key: LISTEN_ADDR
+            - name: EMBEDDING_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: graphiti-config
+                  key: EMBEDDING_BASE_URL
+            - name: EMBEDDING_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: graphiti-config
+                  key: EMBEDDING_MODEL
+            - name: RUST_LOG
+              valueFrom:
+                configMapKeyRef:
+                  name: graphiti-config
+                  key: RUST_LOG
+            # Sensitive credentials from Secret
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: graphiti-secrets
+                  key: NEO4J_PASSWORD
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: graphiti-secrets
+                  key: ANTHROPIC_API_KEY
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: graphiti-secrets
+                  key: OPENAI_API_KEY
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

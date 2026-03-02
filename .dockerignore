@@ -1,0 +1,41 @@
+# Version control
+.git
+.gitignore
+
+# Build artifacts (excluded so Docker cache only invalidates on source change)
+target/
+
+# Dev environment
+.env
+.env.*
+!.env.example
+
+# Editor / IDE artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation build outputs
+doc/
+docs/_build/
+
+# CI artefacts
+*.log
+
+# Test snapshots / fixtures that should not reach the image
+tests/snapshots/
+
+# OS artefacts
+.DS_Store
+Thumbs.db
+
+# Plan files created during development
+PLAN-*.md
+
+# Benchmarks don't ship in the production image
+benches/
+
+# Compiled test / bench binaries
+a.out
