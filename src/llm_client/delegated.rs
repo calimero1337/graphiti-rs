@@ -42,6 +42,11 @@ impl DelegatedLlmClient {
             completion_tokens: AtomicU64::new(0),
         }
     }
+
+    /// Rough token estimate: ~4 characters per token.
+    fn estimate_tokens(text: &str) -> u64 {
+        (text.len() as u64) / 4
+    }
 }
 
 /// Extract the system and user portions from a slice of [`Message`]s.
@@ -92,6 +97,10 @@ fn infer_task_type(system_prompt: &str) -> LlmTaskType {
 impl LlmClient for DelegatedLlmClient {
     async fn generate(&self, messages: &[Message]) -> crate::errors::Result<String> {
         let (system_prompt, user_prompt) = messages_to_parts(messages);
+        self.prompt_tokens.fetch_add(
+            Self::estimate_tokens(&system_prompt) + Self::estimate_tokens(&user_prompt),
+            Ordering::Relaxed,
+        );
         let task_type = infer_task_type(&system_prompt);
 
         let id = self.queue.submit(
@@ -108,8 +117,8 @@ impl LlmClient for DelegatedLlmClient {
             .await
             .map_err(|e| GraphitiError::Llm(LlmError::Api { status: 0, message: e }))?;
 
-        self.completion_tokens.fetch_add(1, Ordering::Relaxed);
-        self.prompt_tokens.fetch_add(1, Ordering::Relaxed);
+        self.completion_tokens
+            .fetch_add(Self::estimate_tokens(&result), Ordering::Relaxed);
 
         Ok(result)
     }
@@ -120,6 +129,10 @@ impl LlmClient for DelegatedLlmClient {
         schema: serde_json::Value,
     ) -> crate::errors::Result<String> {
         let (system_prompt, user_prompt) = messages_to_parts(messages);
+        self.prompt_tokens.fetch_add(
+            Self::estimate_tokens(&system_prompt) + Self::estimate_tokens(&user_prompt),
+            Ordering::Relaxed,
+        );
         let task_type = infer_task_type(&system_prompt);
 
         let id = self.queue.submit(
@@ -136,8 +149,8 @@ impl LlmClient for DelegatedLlmClient {
             .await
             .map_err(|e| GraphitiError::Llm(LlmError::Api { status: 0, message: e }))?;
 
-        self.completion_tokens.fetch_add(1, Ordering::Relaxed);
-        self.prompt_tokens.fetch_add(1, Ordering::Relaxed);
+        self.completion_tokens
+            .fetch_add(Self::estimate_tokens(&result), Ordering::Relaxed);
 
         Ok(result)
     }
@@ -205,10 +218,12 @@ mod tests {
 
         assert_eq!(result, r#"{"entities":["Alice","Bob"]}"#);
 
-        // Verify token counters incremented
+        // Verify token counters incremented (estimate_tokens = len / 4)
         let usage = client.token_usage();
-        assert_eq!(usage.prompt_tokens, 1);
-        assert_eq!(usage.completion_tokens, 1);
+        // "extract entities from text" (27/4=6) + "Alice met Bob in Paris" (22/4=5) = 11
+        assert_eq!(usage.prompt_tokens, 11);
+        // r#"{"entities":["Alice","Bob"]}"# (28/4=7)
+        assert_eq!(usage.completion_tokens, 7);
     }
 
     #[tokio::test]
