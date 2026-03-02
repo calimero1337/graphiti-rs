@@ -25,10 +25,10 @@ COPY src ./src
 RUN cargo build --release --bin graphiti-server
 
 # ─── Stage 2: Runtime ────────────────────────────────────────────────────────
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+    ca-certificates libssl3t64 && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 10001 graphiti && \
     useradd --uid 10001 --gid graphiti --shell /bin/bash --create-home graphiti
