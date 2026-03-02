@@ -11,6 +11,7 @@
 
 pub mod anthropic;
 pub mod claude;
+pub mod delegated;
 pub mod openai;
 pub mod task_queue;
 pub mod token_tracker;
