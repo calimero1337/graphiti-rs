@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.75"
 description = "Rust port of Graphiti — a framework for temporally-aware knowledge graphs for AI agents"
 license = "Apache-2.0"
-repository = "https://github.com/your-org/graphiti-rs"
+repository = "https://github.com/calimero1337/graphiti-rs"
 
 [dependencies]
 # Async runtime
